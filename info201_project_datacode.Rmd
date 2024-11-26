@@ -1,0 +1,218 @@
+---
+title: "info201_project_datacode"
+author: "Tyler Ngo, Sam Mixon, Anna Carpio, and Lavinia Bartose"
+date: "2024-05-24"
+output: html_document
+---
+
+## Loading and Ensuring Datasets
+```{r}
+library(tidyverse)
+library(tidyr)
+library(dplyr)
+library(lubridate)
+
+sea_call_data <- read_delim("../../Seattle_Call_Data_20240523.csv")
+
+dim(sea_call_data)
+names(sea_call_data)
+
+
+sea_incident_data <- read_delim("../../Seattle_Police_Department_911_Incident_Response.csv.zip")
+
+dim(sea_incident_data)
+names(sea_incident_data)
+```
+
+
+## Cleaning Datasets
+```{r}
+sea_call_data <- sea_call_data %>% 
+  select("Initial Call Type", "Final Call Type", "Priority", "Original Time Queued", "Arrived Time", "Event Clearance Description", "Beat")
+
+sea_call_data
+
+sea_incident_data <- sea_incident_data %>% 
+  select("Event Clearance Description", "Event Clearance SubGroup", "Event Clearance Date", "Hundred Block Location", "Zone/Beat", "District/Sector")
+
+sea_incident_data
+```
+
+
+## Renaming Datasets
+```{r}
+sea_call_data <- sea_call_data %>%
+  rename(Event_Clearance_Description = `Final Call Type`,
+         Incident_Outcome = `Event Clearance Description`,
+         )
+
+sea_call_data
+
+
+sea_incident_data <- sea_incident_data %>% 
+  rename(Beat = `Zone/Beat`,
+         Event_Clearance_Description = `Event Clearance Description`,
+         Block_Location = `Hundred Block Location`)
+
+sea_incident_data
+```
+
+
+## Column Creation
+```{r}
+names(sea_call_data)
+
+names(sea_incident_data)
+
+# Categorical
+sea_call_data <- sea_call_data %>% 
+   mutate(Time_of_Day_Reported = ifelse(grepl("PM", `Original Time Queued`), "Afternoon/Evening", "Morning/Daytime"))
+
+sea_call_data
+
+# Continuous/Numerical
+sea_call_data <- sea_call_data %>% 
+  mutate(`Original Time Queued` = mdy_hms(`Original Time Queued`),
+         `Arrived Time` = mdy_hms(`Arrived Time`))
+
+sea_call_data <- sea_call_data %>% 
+  mutate(Response_Duration = as.numeric(difftime(`Arrived Time`, `Original Time Queued`, units = "mins")))
+
+sea_call_data
+
+# Summarization (summarization for event descriptions by initial call type)
+call_type_summary <- sea_call_data %>% 
+  group_by(`Initial Call Type`) %>% 
+  summarize(
+    distinct_clearances = n_distinct(Event_Clearance_Description),
+    total_calls = n()
+  )
+
+call_type_summary
+```
+
+
+## Data Joining
+```{r}
+sea_call_data_unique <- sea_call_data %>%
+  distinct(Beat, Event_Clearance_Description, .keep_all = TRUE)
+
+sea_incident_data_unique <- sea_incident_data %>%
+  distinct(Beat, Event_Clearance_Description, .keep_all = TRUE)
+
+
+merged_sea_data <- sea_call_data_unique %>%
+  inner_join(sea_incident_data_unique, by = c("Beat", "Event_Clearance_Description"))
+
+merged_sea_data
+```
+
+
+## Data Plotting
+```{r}
+names(merged_sea_data)
+```
+
+```{r}
+ggplot(merged_sea_data, aes(x = Priority, y = Response_Duration)) +
+  geom_point() +
+  labs(title = "Response Duration by Priority",
+       x = "Priority",
+       y = "Response Duration (minutes)") +
+  theme_minimal()
+```
+
+```{r}
+ggplot(merged_sea_data, aes(x = Time_of_Day_Reported)) +
+  geom_bar() +
+  labs(title = "Incident Count by Time of Day",
+       x = "Time of Day",
+       y = "Count of Incidents") +
+  theme_minimal()
+```
+
+```{r}
+ggplot(merged_sea_data, aes(x = reorder(`Event_Clearance_Description`, -table(`Event_Clearance_Description`)[`Event_Clearance_Description`]), fill = Event_Clearance_Description)) +
+  geom_bar() +
+  coord_flip()+
+  labs(title = "Most Prevalent Types of Reports/Crimes in Seattle",
+       x = "Event Clearance Description",
+       y = "Number of Incidents")
+```
+
+```{r}
+ggplot(merged_sea_data %>% 
+         filter(Beat %in% names(sort(table(Beat), decreasing = TRUE))[1:10]), 
+       aes(x = reorder(Beat, -table(Beat)[Beat]), fill = Beat)) +
+  geom_bar() +
+  labs(title = "Top 10 Highest Crime Rates by Neighborhood (Beat)",
+       x = "Beat",
+       y = "Number of Incidents")
+```
+
+```{r}
+ggplot(merged_sea_data, aes(x = `Incident_Outcome`)) +
+  geom_bar() +
+  coord_flip()+
+  labs(title = "Distribution of Incident Outcomes in Seattle",
+       x = "Incident Outcome",
+       y = "Number of Incidents")
+```
+
+```{r}
+merged_sea_data <- merged_sea_data %>%
+  mutate(`Event Clearance Date` = mdy_hms(`Event Clearance Date`))
+
+crime_rate_over_time <- merged_sea_data %>%
+  mutate(year = year(`Event Clearance Date`)) %>%
+  group_by(year) %>%
+  summarize(incident_count = n()) %>%
+  arrange(year)  
+
+ggplot(crime_rate_over_time, aes(x = year, y = incident_count)) +
+  geom_line(color = "orange") +
+  labs(title = "Crime Rates Over Time",
+       x = "Year",
+       y = "Number of Incidents")
+```
+
+## Description of data
+```{r}
+dim(merged_sea_data)
+```
+```
+In our merged dataset, there are 288 rows and 12 columns.
+
+The rows in our dataset represent a crime incident.
+
+The relevant variables within our dataset are "Event_Clearance_Description", "Priority", "Incident_Outcome", "Beat", and "Response_Duration" which are a few of the most crucial variables. 
+
+Event_Clearance_Description, Incident_Outcome, and Beat are all coded and have values that are strings, while Priority and Response_Duration have values that are coded as numerical/numbers.
+```
+```{r}
+merged_sea_data %>%
+  summarize(count = sum(!is.na(.)))
+
+merged_sea_data %>%
+  summarize(count = sum(Response_Duration == 0.00000000, na.rm = TRUE))
+```
+```
+Yes, there are missing values in the dataset. The missing values in the dataset are shown as N/A. There are 3,390 missing values in our merged dataset. I also noticed that there are non-plausible values in our dataset, being "0.00000000" in the Response_Duration variable. These non-plausible values are shown 142 times in the dataset.
+```
+
+
+## Data Methods
+```{r}
+names(merged_sea_data)
+```
+```
+We decided to include the variables: "Initial Call Type"           "Event_Clearance_Description", "Priority", "Original Time Queued", " Arrived Time", "Incident_Outcome", "Beat",                   "Time_of_Day_Reported", "Response_Duration", "Event Clearance SubGroup"   
+"Event Clearance Date", and "Block_Location".
+
+In order to process our data, we had chosen both csv files which we were able to process through rstudio using the read_delim function. We used this function as it is the most effective way and it displays both our chosen datasets correctly.
+
+To select our sample and datasets, we looked online for Seattle crime datasets that had a common key. This would allow us to easily merge both datasets.
+
+Although we did not remove missing values or replace missing values, we removed a few variables from both datasets to ensure simplicity and that our datasets were more refined. We also renamed a few variables to allow for an easier coding experience. 
+```
+

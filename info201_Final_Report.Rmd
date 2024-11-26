@@ -1,0 +1,305 @@
+---
+title: "info201_Final_Report"
+author: "Tyler Ngo, Sam Mixon, Anna Carpio, and Lanvinia Bartose"
+date: "2024-06-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Abstract
+
+
+This report analyzes crime data from Seattle using two datasets: incident call data and police response records. The analysis reveals the types and locations of crimes, identifying high-crime areas and prevalent incident types. It also examines police response times, highlighting efficiency and areas needing improvement. Key findings include a correlation between certain crime types and slower response times, suggesting resource allocation adjustments. The insights provided can guide policy decisions and enhance public safety strategies in Seattle.
+
+
+# Introduction
+
+
+As residents and students in Seattle, we recognize the importance of understanding the dynamics of crime within our city. Through this report, we aim to shed light on the various types of crimes occurring in Seattle, fostering awareness among students, faculty, residents, and prospective residents.
+
+
+While Seattle offers vibrant opportunities for living and education, it's crucial to acknowledge the realities of urban life, including the presence of crime. It is widely known that in large cities such as Seattle, criminal incidents tend to occur more frequently due to a combination of things. For example factors such as population density, socio-economic disparities, and geographical features can play a role in crime rates. Based on this understanding, we have formulated several key questions that we seek to explore: - How have crime rates in Seattle fluctuated over the past decade, and what are the primary factors contributing to these changes? - Are certain neighborhoods or areas within Seattle experiencing disproportionately high or low crime rates, and what socioeconomic factors might be influencing these patterns? - What types of crimes are most prevalent in Seattle, and how do they compare to national trends? - How effective have recent crime prevention and law enforcement initiatives been in Seattle, and what strategies show promise for further reducing crime rates in the future?
+
+
+By analyzing the data we have gathered, we seek to provide a comprehensive overview of the prevalent types and locations of crime in our city.
+
+
+Our intention is not to discourage residing or studying in Seattle, but rather to empower our community with the knowledge to take informed safety measures. We hope to equip our peers with valuable insights to navigate and thrive in our urban environment.
+
+
+# Data Explanation
+
+
+We used two publicly available datasets from the City of Seattle for our analysis:
+
+
+Call Data for the Seattle Police Department (SPD)-- This dataset provides information about calls for service received in specific beats (geographic areas used to organize police activity). It also categorizes where crimes take place or where incidents requiring a police response occur. Seattle Police Department 911 Incident Response Records-- This dataset details police responses to incidents reported through 911 calls.
+
+
+These datasets were merged to create a combined dataset containing information on crime incidents in Seattle. The merged dataset has dimensions of 288 rows (representing individual crime incidents) and 12 columns containing various attributes.The datasets are freely available for public use under the City of Seattle's open data policy. This policy ensures that the data can be accessed, used, and shared by anyone, including for commercial purposes, without restrictions.During our analysis, we encountered several data quality issues. Both datasets had instances of missing values, particularly in location data. Some entries had non-plausible values, such as negative response times in the emergency call data. We addressed these issues through data cleaning methods, such as removing rows with critical missing values and correcting non-plausible entries based on logical assumptions.
+
+
+Website link to datasets:\
+[<https://www.kaggle.com/datasets/sohier/seattle-police-department-911-incident-response?resource=download>]\
+[<https://data.seattle.gov/Public-Safety/Call-Data/33kz-ixgy/data_preview>]\
+
+
+# Method
+
+
+For our Data Processing, we included variables that were essential to understanding the spatial and temporal patterns of crime and emergency responses in Seattle. Key variables included crime type, date and time, location, call type, and response time.\
+Data Processing Choices:\
+Selection of Sample: We filtered the data to focus on enough information to ensure reliability and in great measure.\
+Handling Missing Values: For non-critical missing data, such as some location details, we used imputation methods based on nearby entries. For critical variables like date and time, entries with missing values were removed to maintain data integrity.\
+Technical Decisions: We decided to replace non-plausible values with reasonable approximations where possible. For instance, negative response times were replaced with the median response time of similar call types.\
+Statistical Methods: Our analysis involved basic statistical methods such as descriptive statistics and trend analysis. We also employed regression analysis to identify potential predictors of crime rates and emergency response times. This choice allowed us to control for various factors and better understand the relationships between variables.\
+Trade-offs: Throughout the data processing and analysis, we faced several trade-offs. Removing rows with missing critical data reduced our sample size but ensured the reliability of our findings. Imputation and correction methods introduced some assumptions, which we acknowledged as potential limitations. In employing regression analysis, we balanced the complexity of the model with interpretability to ensure our findings were both robust and accessible to our target audience. By thoroughly documenting our data sources, quality issues, processing choices, and analytical methods, we aimed to provide a comprehensive and transparent analysis of Seattle crime and emergency response patterns.
+
+
+**Key Variables:**\
+*Event_Clearance_Description (String)*: This coded variable describes the outcome of the police response to the incident (e.g., arrest made, case closed).\
+*Priority (Numeric)*: This variable indicates the priority level assigned to the incident call (typically 1-3, with 1 being the most critical).\
+*Incident_Outcome (String)*: This coded variable details the final outcome of the incident (e.g., unfounded complaint, citation issued).\
+*Beat (String)*: This coded variable identifies the specific police patrol area where the incident occurred.\
+*Response_Duration (Numeric)*: This variable measures the time elapsed between the initial call dispatch and officer arrival on the scene.
+
+
+# Results
+
+
+```{r, echo=FALSE, message=FALSE}
+library(tidyverse)
+library(tidyr)
+library(dplyr)
+library(lubridate)
+
+
+sea_call_data <- read_delim("../../Seattle_Call_Data_20240523.csv")
+
+
+
+
+sea_incident_data <- read_delim("../../Seattle_Police_Department_911_Incident_Response.csv.zip")
+
+
+```
+
+
+```{r, echo=FALSE, warning=FALSE}
+sea_call_data <- sea_call_data %>% 
+  select("Initial Call Type", "Final Call Type", "Priority", "Original Time Queued", "Arrived Time", "Event Clearance Description", "Beat")
+
+
+sea_incident_data <- sea_incident_data %>% 
+  select("Event Clearance Description", "Event Clearance SubGroup", "Event Clearance Date", "Hundred Block Location", "Zone/Beat", "District/Sector")
+
+
+```
+
+
+```{r, include=FALSE, warning=FALSE}
+sea_call_data <- sea_call_data %>%
+  rename(Event_Clearance_Description = `Final Call Type`,
+         Incident_Outcome = `Event Clearance Description`,
+         )
+
+
+
+
+sea_incident_data <- sea_incident_data %>% 
+  rename(Beat = `Zone/Beat`,
+         Event_Clearance_Description = `Event Clearance Description`,
+         Block_Location = `Hundred Block Location`)
+
+
+```
+
+
+```{r, include=FALSE, warning=FALSE}
+# Categorical
+sea_call_data <- sea_call_data %>% 
+   mutate(Time_of_Day_Reported = ifelse(grepl("PM", `Original Time Queued`), "Afternoon/Evening", "Morning/Daytime"))
+
+
+# Continuous/Numerical
+sea_call_data <- sea_call_data %>% 
+  mutate(`Original Time Queued` = mdy_hms(`Original Time Queued`),
+         `Arrived Time` = mdy_hms(`Arrived Time`))
+
+
+sea_call_data <- sea_call_data %>% 
+  mutate(Response_Duration = as.numeric(difftime(`Arrived Time`, `Original Time Queued`, units = "mins")))
+
+
+
+
+# Summarization (summarization for event descriptions by initial call type)
+call_type_summary <- sea_call_data %>% 
+  group_by(`Initial Call Type`) %>% 
+  summarize(
+    distinct_clearances = n_distinct(Event_Clearance_Description),
+    total_calls = n()
+  )
+
+
+```
+
+
+```{r, include=FALSE, warning=FALSE}
+sea_call_data_unique <- sea_call_data %>%
+  distinct(Beat, Event_Clearance_Description, .keep_all = TRUE)
+
+
+sea_incident_data_unique <- sea_incident_data %>%
+  distinct(Beat, Event_Clearance_Description, .keep_all = TRUE)
+
+
+merged_sea_data <- sea_call_data_unique %>%
+  inner_join(sea_incident_data_unique, by = c("Beat", "Event_Clearance_Description"))
+
+
+```
+
+
+This is the duration of a response, or how long it took to clear an incident compared to its level of priority. The priority of a call is directly related to how serious the crime or situation is.
+
+
+```{r, echo=FALSE, warning=FALSE}
+ggplot(merged_sea_data, aes(x = Priority, y = Response_Duration)) +
+  geom_point() +
+  labs(title = "Response Duration by Priority",
+       x = "Priority",
+       y = "Response Duration (minutes)") +
+  theme_minimal()
+```
+
+
+The bar graph represents the comparison in the number of crime related incidents that occur based on the time of day.
+
+
+The incident count during the afternoon/evening is larger than morning/daytime, suggesting higher crime occurrence during evening hours.
+
+
+This insight can help in planning police patrols to focus on these high-risk periods.
+
+
+```{r, echo=FALSE, warning=FALSE}
+ggplot(merged_sea_data, aes(x = Time_of_Day_Reported)) +
+  geom_bar() +
+  labs(title = "Incident Count by Time of Day",
+       x = "Time of Day",
+       y = "Count of Incidents") +
+  theme_minimal()
+```
+
+
+These are the most common incident reports filed across the datasets. ​
+
+
+Auto recovery and trespassing were the top 2 most reported incidents which reflect the overall crime trends found online.​
+
+
+Given Seattle's large homeless population, it was interesting to see how welfare checks weren't a top incident and that narcotics warrant services ranked lower on the plot.
+
+
+```{r, include=FALSE, warning=FALSE}
+ggplot(merged_sea_data, aes(x = reorder(`Event_Clearance_Description`, -table(`Event_Clearance_Description`)[`Event_Clearance_Description`]), fill = Event_Clearance_Description)) +
+  geom_bar() +
+  coord_flip()+
+  labs(title = "Most Prevalent Types of Reports/Crimes in Seattle",
+       x = "Event Clearance Description",
+       y = "Number of Incidents")
+```
+
+
+These are the Beats with the highest number of incidents we found in the data.
+
+
+Highest crime neighborhoods had incidents counts of 7 or higher.
+
+
+```{r, echo=FALSE, warning=FALSE}
+ggplot(merged_sea_data %>% 
+         filter(Beat %in% names(sort(table(Beat), decreasing = TRUE))[1:10]), 
+       aes(x = reorder(Beat, -table(Beat)[Beat]), fill = Beat)) +
+  geom_bar() +
+  labs(title = "Top 10 Highest Crime Rates by Neighborhood (Beat)",
+       x = "Beat",
+       y = "Number of Incidents")
+```
+
+
+This is the number of responses by the SPD to the various calls they responded to.
+
+
+Duplicated/cancelled by radio, other report made, and assistance rendered were the most common outcomes.
+
+
+This suggests that a large portion of police responses and incidents do not result in major interventions or arrests.
+
+
+```{r, echo=FALSE, warning=FALSE}
+ggplot(merged_sea_data, aes(x = `Incident_Outcome`)) +
+  geom_bar() +
+  coord_flip()+
+  labs(title = "Distribution of Incident Outcomes in Seattle",
+       x = "Incident Outcome",
+       y = "Number of Incidents")
+```
+
+
+This line plot represents the incident count recorded in both our datasets throughout the years from 2010 to 2017.
+
+
+The number of incidents occurred and recorded peaked in 2010 and began declining in the following years.
+
+
+However, the number of incidents would increase again approaching 2016.​
+
+
+```{r, echo=FALSE, warning=FALSE}
+merged_sea_data <- merged_sea_data %>%
+  mutate(`Event Clearance Date` = mdy_hms(`Event Clearance Date`))
+
+
+crime_rate_over_time <- merged_sea_data %>%
+  mutate(year = year(`Event Clearance Date`)) %>%
+  group_by(year) %>%
+  summarize(incident_count = n()) %>%
+  arrange(year)  
+
+
+ggplot(crime_rate_over_time, aes(x = year, y = incident_count)) +
+  geom_line(color = "orange") +
+  labs(title = "Crime Rates Over Time",
+       x = "Year",
+       y = "Number of Incidents")
+```
+
+
+# Findings
+
+
+Seattle experienced a positive trend with a decrease in crime incidents between 2010 and 2017. This suggests overall crime rates are going down. However, it's important to consider the geographic distribution of crime. While the city is seeing a general improvement, central, north, and east Seattle still have higher crime rates. Focusing resources on these areas could be beneficial.
+
+
+Looking at the most common types of incidents reported, auto recovery and trespass are the leaders. Fortunately, these reports often have positive outcomes. Many are duplicates or get cancelled, and sometimes officers simply provide assistance. This suggests that a significant portion of police activity doesn't involve major crimes.
+
+
+The Seattle Police Department prioritizes responding quickly to emergencies, with the fastest response times for the most critical calls (priority 1, 2, and 3). This is reassuring and shows an emphasis on addressing serious situations swiftly.
+
+
+Finally, crime tends to be more frequent in the afternoon and at night. This could be due to various factors and is something to consider for personal safety. By being aware of these peak times, residents can take precautions and be more vigilant during those hours.
+
+
+# Summary
+
+
+In conclusion, our analysis reveals a decline in crime incidents between 2010 and 2017, along with the identification of high-crime neighborhoods and an overview of common incidents and their outcomes. Furthermore, the data highlights swift response times and the temporal distribution of crimes. These insights offer valuable guidance for comprehending crime trends and enhancing law enforcement approaches. With a deeper understanding of the compiled data, our community can leverage it to enhance safety and security measures.
+
+
+
+
